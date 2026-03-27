@@ -1,0 +1,42 @@
+# 数据参数
+data:
+  dataset_name: "DatasetMixed"   # 指定数据集类名
+  train_txt: "../../dataset/Voicebank-DEMAND/train_dataset.txt"
+  val_txt: "../../dataset/Voicebank-DEMAND/test_dataset.txt"
+  train_limit: 10
+  val_limit: 5
+  sample_rate: 8000
+  segment_seconds: 3.0
+  segment_mode: "random_crop"                # 可选 "random_crop" 或 "pad"
+
+# STFT 参数
+stft:
+  n_fft: 512
+  hop_length: 128
+  win_length: 512
+  window: "hann_window"
+
+# 模型参数
+model:
+  name: "unet"                           # 目前支持 "unet"
+  unet:
+    in_channels: 1
+    out_channels: 1
+    features: [64, 128, 256, 512]
+    time_pooling: [2, 2, 2, 2]
+    freq_pooling: [2, 2, 2, 2]
+
+# 训练参数
+training:
+  device: "cpu"                          # 'cuda'或 "cpu"
+  batch_size: 32
+  epochs: 5
+  lr: 0.001
+  weight_decay: 1e-5
+  loss: "si_snr"                            # 可选 "mse", "si_snr"
+  num_workers: 16
+  log_interval: 10
+  save_interval: 1
+  checkpoint_dir: "./checkpoints"        # 保存路径
+  resume: null                           # 指定 checkpoint 路径恢复训练
+  preload: null                          # 指定预训练权重路径（仅加载模型）

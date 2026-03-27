@@ -1,0 +1,28 @@
+# python
+pycache/
+*.py[cod]
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# checkpoint
+checkpoints/
+*.pth
+*.pt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# data
+*.wav
+*.txt
+
+# log
+logs/
+runs/
