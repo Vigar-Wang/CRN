@@ -25,12 +25,13 @@ model:
     features: [64, 128, 256, 512]
     time_pooling: [2, 2, 2, 2]
     freq_pooling: [2, 2, 2, 2]
+    decode_mode: "interpolate"           # 可选"interpolate"或"transposed_conv"
 
 # 训练参数
 training:
   device: "cpu"                          # 'cuda'或 "cpu"
   batch_size: 32
-  epochs: 5
+  epochs: 2
   lr: 0.001
   weight_decay: 1e-5
   loss: "si_snr"                            # 可选 "mse", "si_snr"
