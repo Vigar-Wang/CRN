@@ -1,10 +1,10 @@
 # 数据参数
 data:
-  dataset_name: "DatasetMixed"   # 指定数据集类名
-  train_txt: "../../dataset/Voicebank-DEMAND/train_dataset.txt"
-  val_txt: "../../dataset/Voicebank-DEMAND/test_dataset.txt"
-  train_limit: 10
-  val_limit: 5
+  dataset_name: "DatasetMixed"
+  train_txt: "../../dataset/NOIZEUS/train_dataset.txt"
+  val_txt: "../../dataset/NOIZEUS/test_dataset.txt"
+  train_limit: null
+  val_limit: null
   sample_rate: 8000
   segment_seconds: 3.0
   segment_mode: "random_crop"                # 可选 "random_crop" 或 "pad"
@@ -31,13 +31,13 @@ model:
 training:
   device: "cpu"                          # 'cuda'或 "cpu"
   batch_size: 32
-  epochs: 2
+  epochs: 10
   lr: 0.001
   weight_decay: 1e-5
-  loss: "si_snr"                            # 可选 "mse", "si_snr"
+  loss: "si_snr"                            # 可选 "mse", "si_snr", "MR_STFT", "Mel"
   num_workers: 16
   log_interval: 10
-  save_interval: 1
-  checkpoint_dir: "./checkpoints"        # 保存路径
-  resume: null                           # 指定 checkpoint 路径恢复训练
-  preload: null                          # 指定预训练权重路径（仅加载模型）
+  save_interval: 2
+  checkpoint_dir: "./checkpoints/si_snr"
+  resume: null
+  preload: null

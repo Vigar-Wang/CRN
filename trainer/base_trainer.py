@@ -5,7 +5,8 @@ import torch.nn as nn
 import numpy as np
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from util.audio_utils import STFT, si_snr_loss
+from util.audio_utils import STFT
+from util.loss_functions import *
 
 class BaseTrainer:
     def __init__(self, config, model, train_dataset, val_dataset):
@@ -42,6 +43,10 @@ class BaseTrainer:
             self.criterion = nn.MSELoss()
         elif config['training']['loss'] == 'si_snr':
             self.criterion = si_snr_loss
+        elif config['training']['loss'] == 'MR_STFT':
+            self.criterion = MR_STFT_loss
+        elif config['training']['loss'] == 'Mel':
+            self.criterion = Mel_loss
         else:
             raise ValueError(f"Unknown loss: {config['training']['loss']}")
 
@@ -114,12 +119,15 @@ class BaseTrainer:
 
             if self.config['training']['loss'] == 'mse':
                 loss = self.criterion(pred_mag, clean_mag.unsqueeze(1))
-            elif self.config['training']['loss'] == 'si_snr': 
+            else:
                 pred_spec = pred_mag.squeeze(1) * torch.exp(1j * torch.angle(noisy_spec))
                 pred_wave = self.stft.inverse(pred_spec, length=clean_wave.shape[-1])
-                loss = self.criterion(pred_wave, clean_wave)
-            else:
-                raise NotImplementedError("loss function implemented")
+                if self.config['training']['loss'] == 'Mel':
+                    loss = self.criterion(pred_wave, clean_wave, sr=self.config['data']['sample_rate'])
+                elif self.config['training']['loss'] in {'si_snr', 'MR_STFT'}:
+                    loss = self.criterion(pred_wave, clean_wave)
+                else:
+                    raise NotImplementedError("loss function unachieved")
 
             loss.backward()
             self.optimizer.step()
@@ -151,12 +159,15 @@ class BaseTrainer:
                 pred_mag = self.model(noisy_mag.unsqueeze(1))
                 if self.config['training']['loss'] == 'mse':
                     loss = self.criterion(pred_mag, clean_mag.unsqueeze(1))
-                elif self.config['training']['loss'] == 'si_snr': 
+                else:
                     pred_spec = pred_mag.squeeze(1) * torch.exp(1j * torch.angle(noisy_spec))
                     pred_wave = self.stft.inverse(pred_spec, length=clean_wave.shape[-1])
-                    loss = self.criterion(pred_wave, clean_wave)
-                else:
-                    raise NotImplementedError("loss function unachieved")
+                    if self.config['training']['loss'] == 'Mel':
+                        loss = self.criterion(pred_wave, clean_wave, sr=self.config['data']['sample_rate'])
+                    elif self.config['training']['loss'] in {'si_snr', 'MR_STFT'}:
+                        loss = self.criterion(pred_wave, clean_wave)
+                    else:
+                        raise NotImplementedError("loss function unachieved")
 
                 total_loss += loss.item()
         avg_loss = total_loss / len(self.val_loader)

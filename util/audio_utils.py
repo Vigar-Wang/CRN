@@ -1,5 +1,6 @@
 import torch
 import torchaudio
+import torchaudio.transforms
 
 class STFT:
     def __init__(self, n_fft, hop_length, win_length, window_fn='hann'):
@@ -32,14 +33,27 @@ class STFT:
         )
         return waveform
 
-def si_snr_loss(est, target, eps=1e-8):
-    """尺度不变信噪比损失 (负的 SI-SNR)"""
-    target = target - target.mean(dim=-1, keepdim=True)
-    est = est - est.mean(dim=-1, keepdim=True)
+def mel_log(audio, sr, n_fft=512, pre_enph_coef=0.97, hop_ms=0.01, \
+    win_ms=0.025, power=2, mel_filter_num=26, mel_coef_num = 13):
 
-    dot = (est * target).sum(dim=-1, keepdim=True)
-    target_norm = (target * target).sum(dim=-1, keepdim=True)
-    s_target = dot / (target_norm + eps) * target
-    e_noise = est - s_target
-    snr = 10 * torch.log10((s_target ** 2).sum(dim=-1) / ((e_noise ** 2).sum(dim=-1) + eps) + eps)
-    return -snr.mean()
+    hop_point = round(sr*hop_ms)
+    win_point = round(sr*win_ms)
+
+    shifted = torch.cat([torch.zeros_like(audio[..., :1]), audio[..., :-1]], dim=-1)
+    y_preemphasized = audio - pre_enph_coef*shifted
+
+    mel_spec = torchaudio.transforms.MelSpectrogram(
+        sample_rate=sr, 
+        n_fft=n_fft, 
+        hop_length=hop_point, 
+        win_length = win_point,
+        n_mels=mel_filter_num, 
+        window_fn=torch.hann_window,
+        power=power
+    )(y_preemphasized)
+
+    log_mel = torchaudio.transforms.AmplitudeToDB(stype='power',
+        top_db=80.0
+    )(mel_spec)
+
+    return log_mel
