@@ -1,7 +1,11 @@
 from .unet import UNet2D
+from .crn import CRN
+from .dccrn import DCCRN
 
 MODEL_REGISTRY = {
     'unet': UNet2D,
+    'crn': CRN,
+    'dccrn': DCCRN,
 }
 
 def get_model(model_name, **kwargs):

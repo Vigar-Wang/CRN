@@ -18,7 +18,7 @@ stft:
 
 # 模型参数
 model:
-  name: "unet"                           # 目前支持 "unet"
+  name: "dccrn"                           # 可选"unet", "crn"或"dccrn"
   unet:
     in_channels: 1
     out_channels: 1
@@ -26,18 +26,39 @@ model:
     time_pooling: [2, 2, 2, 2]
     freq_pooling: [2, 2, 2, 2]
     decode_mode: "interpolate"           # 可选"interpolate"或"transposed_conv"
+  crn:
+    in_channels: 1
+    out_channels: 1
+    fft_point: 512
+    enc_channels: [16, 32, 64, 128, 256]
+    enc_kernels: [2, 3]
+    enc_strides: [1, 2]
+    rnn_hidden_size: 256
+    rnn_layers: 2
+    rnn_bidirectional: false
+    activation: "elu"                    # 可选"elu"或"relu"
+  dccrn:
+    in_channels: 1
+    out_channels: 1
+    fft_point: 512
+    enc_channels: [32, 64, 128, 256, 256]
+    rnn_hidden_size: 256
+    rnn_layers: 2
+    rnn_bidirectional: false
+    activation: "relu"                    # 可选"elu"或"relu"
 
 # 训练参数
 training:
-  device: "cpu"                          # 'cuda'或 "cpu"
+  device: "cpu"                             # 'cuda'或 "cpu"
   batch_size: 32
   epochs: 10
+  model_type: "CRM"                         # 可选"CED"或"CRM"
   lr: 0.001
   weight_decay: 1e-5
   loss: "si_snr"                            # 可选 "mse", "si_snr", "MR_STFT", "Mel"
   num_workers: 16
   log_interval: 10
-  save_interval: 2
-  checkpoint_dir: "./checkpoints/si_snr"
+  save_interval: 5
+  checkpoint_dir: "./checkpoints/dccrn"
   resume: null
   preload: null

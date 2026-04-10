@@ -13,6 +13,7 @@ class BaseTrainer:
         self.config = config
         self.device = torch.device(config['training']['device'])
         self.model = model.to(self.device)
+        self.model_type = config['training']['model_type']
         self.train_loader = DataLoader(
             train_dataset,
             batch_size=config['training']['batch_size'],
@@ -22,13 +23,12 @@ class BaseTrainer:
         )
         self.val_loader = DataLoader(
             val_dataset,
-            batch_size=1,  # 验证时 batch_size 可固定为 1
+            batch_size=1,
             shuffle=False,
             num_workers=config['training']['num_workers'],
             pin_memory=(self.device.type == 'cuda')
         )
 
-        # 优化器与调度器
         self.optimizer = torch.optim.Adam(
             self.model.parameters(),
             lr=float(config['training']['lr']),
@@ -38,7 +38,6 @@ class BaseTrainer:
             self.optimizer, mode='min', factor=0.5, patience=5
         )
 
-        # 损失函数
         if config['training']['loss'] == 'mse':
             self.criterion = nn.MSELoss()
         elif config['training']['loss'] == 'si_snr':
@@ -50,7 +49,6 @@ class BaseTrainer:
         else:
             raise ValueError(f"Unknown loss: {config['training']['loss']}")
 
-        # STFT 工具（用于重建波形，仅在 si_snr 损失时使用）
         stft_cfg = config['stft']
         self.stft = STFT(
             stft_cfg['n_fft'],
@@ -59,12 +57,11 @@ class BaseTrainer:
             stft_cfg['window']
         )
 
-        # 日志与保存
         self.writer = SummaryWriter(log_dir=os.path.join(config['training']['checkpoint_dir'], 'logs'))
         self.checkpoint_dir = config['training']['checkpoint_dir']
+        self.save_interval = config['training']['save_interval']
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
-        # 恢复训练或加载预训练权重
         self.start_epoch = 1
         self.best_val_loss = float('inf')
         if config['training'].get('resume'):
@@ -93,11 +90,55 @@ class BaseTrainer:
             'best_val_loss': self.best_val_loss,
         }
         path = os.path.join(self.checkpoint_dir, f'checkpoint_epoch{epoch}.pth')
-        torch.save(checkpoint, path)
+        if epoch % self.save_interval == 0:
+            torch.save(checkpoint, path)
         if is_best:
             best_path = os.path.join(self.checkpoint_dir, 'best_model.pth')
             torch.save(checkpoint, best_path)
             print(f"Best model saved (val loss {self.best_val_loss:.4f})")
+
+    def model_input_get(self, spec):
+        if self.model_type == 'CED':
+            noisy_mag = torch.abs(spec)
+            noisy_mag = noisy_mag.unsqueeze(1)
+            return noisy_mag
+        elif self.model_type == 'IRM':
+            raise NotImplementedError("Model type not implemented")
+        elif self.model_type == 'IPM':
+            raise NotImplementedError("Model type not implemented")
+        elif self.model_type == 'CRM':
+            noisy_spec = torch.stack([spec.real, spec.imag], dim=1)
+            # noisy_spec = noisy_spec.permute(0, 1, 3, 2).contiguous()
+            return noisy_spec
+        else:
+            raise NotImplementedError("Model type not implemented")
+
+    def model_output_post_process(self, model_output, origin_spec=0, length=0, type='mag'):
+        if self.model_type == 'CED':
+            if type == 'mag':
+                return model_output
+            else:
+                pred_spec = model_output.squeeze(1) * torch.exp(1j * torch.angle(spec))
+                pred_wave = self.stft.inverse(pred_spec, length=length)
+                return pred_wave
+        elif self.model_type == 'IRM':
+            raise NotImplementedError("Model type not implemented")
+        elif self.model_type == 'IPM':
+            raise NotImplementedError("Model type not implemented")
+        elif self.model_type == 'CRM':
+            Y_real, Y_imag = origin_spec.real, origin_spec.imag
+            M_real, M_imag = model_output[:, 0], model_output[:, 1]
+            S_real = Y_real * M_real - Y_imag * M_imag
+            S_imag = Y_real * M_imag + Y_imag * M_real
+            S_hat = torch.complex(S_real, S_imag)
+            # S_hat = S_hat.permute(0, 2, 3, 1).contiguous()
+            if type == 'mag':
+                return torch.abs(S_hat).unsqueeze(1)
+            else:
+                pred_wave = self.stft.inverse(S_hat, length=length)
+                return pred_wave
+        else:
+            raise NotImplementedError("Model type not implemented")
 
     def train_one_epoch(self, epoch):
         self.model.train()
@@ -108,26 +149,28 @@ class BaseTrainer:
             noisy_wave = noisy_wave.to(self.device)
             clean_wave = clean_wave.to(self.device)
 
-            noisy_spec = self.stft(noisy_wave)
             clean_spec = self.stft(clean_wave)
+            clean_mag = torch.abs(clean_spec)
 
-            noisy_mag = np.abs(noisy_spec)
-            clean_mag = np.abs(clean_spec)
+            noisy_spec = self.stft(noisy_wave)
+
+            model_input_sig = self.model_input_get(noisy_spec)
 
             self.optimizer.zero_grad()
-            pred_mag = self.model(noisy_mag.unsqueeze(1))
+            pred_sig = self.model(model_input_sig)
 
             if self.config['training']['loss'] == 'mse':
+                pred_mag = self.model_output_post_process(pred_sig, type='mag')
                 loss = self.criterion(pred_mag, clean_mag.unsqueeze(1))
             else:
-                pred_spec = pred_mag.squeeze(1) * torch.exp(1j * torch.angle(noisy_spec))
-                pred_wave = self.stft.inverse(pred_spec, length=clean_wave.shape[-1])
+                pred_wave = self.model_output_post_process(pred_sig, origin_spec=noisy_spec, 
+                    length=clean_wave.shape[-1], type='wave')
                 if self.config['training']['loss'] == 'Mel':
                     loss = self.criterion(pred_wave, clean_wave, sr=self.config['data']['sample_rate'])
                 elif self.config['training']['loss'] in {'si_snr', 'MR_STFT'}:
                     loss = self.criterion(pred_wave, clean_wave)
                 else:
-                    raise NotImplementedError("loss function unachieved")
+                    raise NotImplementedError("loss function not implemented")
 
             loss.backward()
             self.optimizer.step()
@@ -150,24 +193,28 @@ class BaseTrainer:
                 noisy_wave = noisy_wave.to(self.device)
                 clean_wave = clean_wave.to(self.device)
 
-                noisy_spec = self.stft(noisy_wave)
                 clean_spec = self.stft(clean_wave)
+                clean_mag = torch.abs(clean_spec)
 
-                noisy_mag = np.abs(noisy_spec)
-                clean_mag = np.abs(clean_spec)
+                noisy_spec = self.stft(noisy_wave)
 
-                pred_mag = self.model(noisy_mag.unsqueeze(1))
+                model_input_sig = self.model_input_get(noisy_spec)
+
+                self.optimizer.zero_grad()
+                pred_sig = self.model(model_input_sig)
+
                 if self.config['training']['loss'] == 'mse':
+                    pred_mag = self.model_output_post_process(model_output, type='mag')
                     loss = self.criterion(pred_mag, clean_mag.unsqueeze(1))
                 else:
-                    pred_spec = pred_mag.squeeze(1) * torch.exp(1j * torch.angle(noisy_spec))
-                    pred_wave = self.stft.inverse(pred_spec, length=clean_wave.shape[-1])
+                    pred_wave = self.model_output_post_process(pred_sig, origin_spec=noisy_spec, 
+                        length=clean_wave.shape[-1], type='wave')
                     if self.config['training']['loss'] == 'Mel':
                         loss = self.criterion(pred_wave, clean_wave, sr=self.config['data']['sample_rate'])
                     elif self.config['training']['loss'] in {'si_snr', 'MR_STFT'}:
                         loss = self.criterion(pred_wave, clean_wave)
                     else:
-                        raise NotImplementedError("loss function unachieved")
+                        raise NotImplementedError("loss function not implemented")
 
                 total_loss += loss.item()
         avg_loss = total_loss / len(self.val_loader)
@@ -186,7 +233,6 @@ class BaseTrainer:
                 self.best_val_loss = val_loss
             self._save_checkpoint(epoch, is_best)
 
-            # 学习率记录
             lr = self.optimizer.param_groups[0]['lr']
             self.writer.add_scalar('train/lr', lr, epoch)
 
